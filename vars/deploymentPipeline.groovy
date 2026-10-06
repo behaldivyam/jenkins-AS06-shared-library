@@ -6,7 +6,6 @@ def call(Map config = [:]) {
     def repoUrl = config.get('repoUrl', '')
     def branch = config.get('branch', 'main')
     def playbook = config.get('playbook', 'gitrunans.yml')
-    def configFile = config.get('configFile', 'config.properties')
 
     /*
      * Runtime configuration
@@ -49,44 +48,49 @@ def call(Map config = [:]) {
      */
     stage('Configuration') {
 
-        echo "Loading deployment configuration..."
+        echo "Loading Shared Library configuration..."
 
-        if (fileExists(configFile)) {
+        /*
+         * Load config.properties from the Shared Library
+         * resources directory.
+         */
+        def configText = libraryResource('config.properties')
 
-            def properties = readProperties file: configFile
+        def configFile = 'shared-library-config.properties'
 
-            slackChannel = properties.get(
-                'SLACK_CHANNEL_NAME',
-                slackChannel
-            )
+        writeFile(
+            file: configFile,
+            text: configText
+        )
 
-            environment = properties.get(
-                'ENVIRONMENT',
-                environment
-            )
+        def properties = readProperties file: configFile
 
-            codeBasePath = properties.get(
-                'CODE_BASE_PATH',
-                codeBasePath
-            )
+        slackChannel = properties.get(
+            'SLACK_CHANNEL_NAME',
+            slackChannel
+        )
 
-            actionMessage = properties.get(
-                'ACTION_MESSAGE',
-                actionMessage
-            )
+        environment = properties.get(
+            'ENVIRONMENT',
+            environment
+        )
 
-            def approvalValue = properties.get(
-                'KEEP_APPROVAL_STAGE',
-                keepApprovalStage.toString()
-            )
+        codeBasePath = properties.get(
+            'CODE_BASE_PATH',
+            codeBasePath
+        )
 
-            keepApprovalStage = approvalValue.toString().toBoolean()
+        actionMessage = properties.get(
+            'ACTION_MESSAGE',
+            actionMessage
+        )
 
-        } else {
+        def approvalValue = properties.get(
+            'KEEP_APPROVAL_STAGE',
+            keepApprovalStage.toString()
+        )
 
-            echo "Configuration file not found."
-            echo "Using default configuration values."
-        }
+        keepApprovalStage = approvalValue.toString().toBoolean()
 
         echo "Environment: ${environment}"
         echo "Code Base Path: ${codeBasePath}"
@@ -155,7 +159,8 @@ Playbook: ${playbook}""",
         echo "Code Base Path: ${codeBasePath}"
 
         /*
-         * Generate a temporary inventory for this build.
+         * Generate a temporary inventory using
+         * the EC2 IP supplied at build time.
          */
         writeFile(
             file: 'inventory.dynamic',
@@ -165,8 +170,8 @@ github-runner ansible_host=${targetIp} ansible_user=ubuntu
         )
 
         /*
-         * Jenkins SSH credential authenticates with EC2.
-         * Jenkins secret-text credential supplies the
+         * Jenkins SSH credential authenticates to EC2.
+         * Jenkins Secret Text credential supplies the
          * GitHub Actions runner registration token.
          */
         sshagent(credentials: [sshCredentialId]) {
@@ -179,6 +184,7 @@ github-runner ansible_host=${targetIp} ansible_user=ubuntu
             ]) {
 
                 withEnv([
+                    "ANSIBLE_HOST_KEY_CHECKING=False",
                     "ANSIBLE_ENVIRONMENT=${environment}",
                     "ANSIBLE_CODE_BASE_PATH=${codeBasePath}"
                 ]) {
